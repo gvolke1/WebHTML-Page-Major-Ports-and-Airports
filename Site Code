@@ -1,0 +1,214 @@
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <title>Griff Volker Final Project</title>
+    <link rel="stylesheet" href="https://js.arcgis.com/4.26/esri/themes/light/main.css" />
+    <script src="https://js.arcgis.com/4.26/"></script>
+    <style>
+      html,
+      body,
+      #viewDiv {                
+        top: 0px;
+        left: 0px;
+        padding: 0px;
+        margin: 0;
+        height: 89%;
+        width: 100%;
+      } 
+      
+      #portNames {                 
+        position: absolute;
+        top: 0px;
+        left: 500px;
+        background-color: white;
+        padding: 10px;
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+    </style> <!-- The view div position is defined above for the map. The port name position will display the port names 
+    in the upper right corner -->
+  </head>
+  <body>
+    <h1>Map of Ports in the United States</h1>  <!-- title of the map -->
+    <p>
+      This is a map of ports in the United States. I chose to map ports for my project because I am interested in public infrastructure.
+      These locations are critical parts of the nation's supply chain as they process any incoming imports and exports, deliver them to their destination,
+      and ensure domestic and international goods arrive on time. Select a state to highlight the ports within the state and the state info. Select a port 
+      to show a popup with the port information. 
+      </p> <!-- Description of the map and its properties -->
+      <p>Select a state and the names of the ports will be highlighted on the map and displayed in the upper right corner. Use the button below the map to query ports with imports over 
+      10,000 tons.
+    </p> <!-- Description of what happens when a state is selected and the query button is selected -->
+    <div id="portNames"></div> <!-- setting the div id of port names to be called later -->
+    <div id="viewDiv"></div> <!-- setting the view div to be called later -->
+    <button id="highlightImportsButton">Highlight Ports with Imports over 10,000</button> <!-- defining the button that will activate the query -->
+
+    <script>
+      var myview;
+
+      require(
+        [
+          "esri/config",
+          "esri/Map",
+          "esri/views/MapView",
+          "esri/layers/GeoJSONLayer",
+          "esri/layers/GraphicsLayer",
+          "esri/Graphic",
+          "esri/geometry/geometryEngine", //A client-side geometry engine for testing, measuring, and analyzing the spatial relationship between two or more 2D geometries. 
+          "esri/geometry/SpatialReference", //Defines the spatial reference of a view, layer, or method parameters.
+          "esri/geometry/support/webMercatorUtils", 
+          //webmercator utils enables us to call a click event for x and y within a state polygon to have our query
+          "esri/symbols/SimpleMarkerSymbol",
+        ],
+        function (
+          esriConfig, Map, MapView, GeoJSONLayer, GraphicsLayer, Graphic, geometryEngine, SpatialReference, webMercatorUtils,SimpleMarkerSymbol
+        ) {
+          esriConfig.apiKey =
+            "AAPK3225e3e282204cb8abd8c166bb704d08Obd3a3hT2yejzkFwWLN_2ZRaF8Q6FfgEowGICBi3QykvQ_6PMZTnYRdpRx4H-DJi";
+
+          const portsLayer = new GeoJSONLayer({    //major ports
+            url: "Major_Ports.geojson",
+            popupTemplate: {                //popup that will display ports and imports with formatting
+              title: "{PORT_NAME}", 
+              content: "<table border='1'><tr><td>Imports</td><td>{IMPORTS}</td></tr><br><tr><td>Exports</td><td>{EXPORTS}</td></tr></table>",
+            },
+          });
+
+          const statesLayer = new GeoJSONLayer({           //US states polygons layer
+            url: "USAStatesGeneralizedBoundaries.geojson",
+            popupTemplate: {                  //popup that will display the name of the state when state is clicked
+              title: "{State Name}",
+            },
+            title: "Maryland States",
+            renderer: {
+              type: "simple",
+              symbol: {
+                type: "simple-fill",          //defining the symbology of the states layer
+                color: "#009999",
+                style: "none",               //making sure the polygon has an outline so we can see the ports
+                outline: {
+                  color: [51, 51, 204, 3],
+                  width: "3px",
+                },
+              },
+            },
+          });
+
+          const highlightStateLayer = new GraphicsLayer();  //defining a graphics layer for when states are highlighted
+          const highlightImportsLayer = new GraphicsLayer(); //defining a graphics layer for when imports are queried
+
+          const map = new Map({
+            basemap: "hybrid",
+            layers: [portsLayer, statesLayer, highlightStateLayer, highlightImportsLayer], //adding our layers
+          });
+
+          const view = new MapView({
+            container: "viewDiv",
+            map: map,
+            center: [-76.7115, 39.2532],
+            zoom: 4,
+          });
+
+          myview = view;
+
+          // When states are selected on a click, the previous highlight will be cleared
+          statesLayer.on("layerview-create", function () {
+            view.whenLayerView(statesLayer).then(function (layerView) {
+              view.on("click", function (event) {
+                // Clear previous highlights
+                highlightStateLayer.removeAll();
+
+                // Get the clicked location in map coordinates
+                const screenPoint = {
+                  x: event.x,
+                  y: event.y,
+                };
+                const mapPoint = view.toMap(screenPoint);
+
+                //This function performs a query to find the state that was clicked from the mappoint we defined earlier
+                //we call on the statesLayer to create our query
+                const stateQuery = statesLayer.createQuery();
+                stateQuery.geometry = mapPoint;
+                layerView.queryFeatures(stateQuery).then(function (result) {
+                  if (result.features.length > 0) {
+                    const state = result.features[0];
+
+                    // Highlight the selected state
+                    const highlightSymbol = {
+                      type: "simple-fill",
+                      color: "rgba(255, 255, 0, 0.5)",
+                      style: "none",                    //makes the polygon fill nothing so the ports are easier to see
+                      outline: {
+                        color: "rgba(255, 255, 0, .5)",
+                        width: "4px",
+                      },
+                    };
+                    const highlightGraphic = new Graphic({     //making a new graphic for when state is clicked 
+                      geometry: state.geometry,   //geometry of the state layer from the query 
+                      symbol: highlightSymbol,  //symbol is highlight symbol we defined earlier
+                    });  
+                    highlightStateLayer.add(highlightGraphic); //adds the highlight graphic we defined earlier
+
+                    // Perform a query to find the ports within the selected state
+                    const portsQuery = portsLayer.createQuery();   //calling on port name we defined earlier
+                    portsQuery.geometry = state.geometry;
+                    portsLayer.queryFeatures(portsQuery).then(function (portsResult) {  //querying ports layer
+                      if (portsResult.features.length > 0) {
+                    	  
+                        // Highlight the ports within the selected state
+                        const portHighlightSymbol = new SimpleMarkerSymbol({   
+                          color: "red",
+                          size: "13px",
+                        });
+                        const portNames = portsResult.features.map(function (port) {   
+                          const portGraphic = new Graphic({          //defining new graphics
+                            geometry: port.geometry,        //geometry of point from ports
+                            symbol: portHighlightSymbol,       //symbology we defined earlier
+                          });
+                          highlightStateLayer.add(portGraphic);  //
+                          return port.attributes.PORT_NAME;    //returning the port name attribute
+                        });
+                        document.getElementById("portNames").textContent = portNames.join(", "); //will display port names within state
+                        //from portNames variable we defined earlier, separated by a comma
+                      } else {
+                        document.getElementById("portNames").textContent = "No ports found";  //if no ports are found from the state, this will display
+                      }
+                    });
+                  }
+                });
+              });
+            });
+          });
+
+          // Defining for when for highlighting ports with imports over 10,000
+          const highlightImportsButton = document.getElementById("highlightImportsButton");
+          highlightImportsButton.addEventListener("click", function () {
+            // Clear previous highlights
+            highlightImportsLayer.removeAll();
+
+            // Perform a query to find the ports with imports over 10,000
+            const portsQuery = portsLayer.createQuery();
+            portsQuery.where = "IMPORTS > 10000"; //imports is the field in the geojson layer
+            portsLayer.queryFeatures(portsQuery).then(function (portsResult) {
+              if (portsResult.features.length > 0) {
+                // Highlight the ports with imports over 10,000
+                const portHighlightSymbol = new SimpleMarkerSymbol({  //defining the symbology to call on later
+                  color: "red",
+                  size: "13px",
+                });
+                portsResult.features.forEach(function (port) {
+                  const portGraphic = new Graphic({           //highlighting the ports on the map with a new graphic
+                    geometry: port.geometry,
+                    symbol: portHighlightSymbol,
+                  });
+                  highlightImportsLayer.add(portGraphic);  //calling on the graphic we defined earlier
+                });
+              }
+            });
+          });
+        }
+      );
+    </script>
+  </body>
+</html>
